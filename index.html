@@ -35,13 +35,33 @@
   <!-- LE CERVEAU HORS-LIGNE (Service Worker) -->
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js')
-        .then(reg => {
-          console.log('Mode Blindé Activé - Service Worker enregistré');
-          // Vérifier les mises à jour toutes les heures
-          setInterval(() => reg.update(), 3600000);
-        })
-        .catch(err => console.error('Erreur SW:', err));
+      // Attendre que la page soit prête
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js', { scope: '/' })
+          .then(reg => {
+            console.log('✅ Mode Blindé Activé - SW enregistré:', reg);
+            console.log('State:', reg.installing, reg.waiting, reg.active);
+            
+            // Vérifier les mises à jour toutes les 30 min
+            setInterval(() => {
+              reg.update().catch(err => console.error('Erreur update:', err));
+            }, 1800000);
+            
+            // Écouter les messages du SW
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+              console.log('✅ Nouveau SW contrôle la page');
+            });
+          })
+          .catch(err => {
+            console.error('❌ Erreur SW registration:', err);
+            console.error('Stack:', err.stack);
+          });
+      });
+      
+      // Vérifier l'état de la connexion
+      console.log('Online:', navigator.onLine);
+    } else {
+      console.warn('Service Workers non supportés');
     }
   </script>
 </head>
