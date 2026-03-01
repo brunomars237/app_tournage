@@ -3,22 +3,25 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#09090b">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Director Hub - 14 Secondes</title>
   
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   
-  <!-- Styles personnalisés (pour la classe no-scrollbar) -->
+  <!-- Styles personnalisés -->
   <style>
     .no-scrollbar::-webkit-scrollbar { display: none; }
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     body { -webkit-tap-highlight-color: transparent; }
   </style>
 
-  <!-- Babel pour compiler le JSX directement dans le navigateur -->
+  <!-- Babel pour compiler le JSX -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <!-- Import Maps pour dire au navigateur où trouver React et Lucide -->
+  <!-- Import Maps -->
   <script type="importmap">
     {
       "imports": {
@@ -28,35 +31,62 @@
       }
     }
   </script>
+
+  <!-- LE CERVEAU HORS-LIGNE (Service Worker Agressif) -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      const swCode = `
+        const CACHE_NAME = 'dirhub-commando-v1';
+        
+        self.addEventListener('install', e => {
+          self.skipWaiting();
+        });
+        
+        self.addEventListener('activate', e => {
+          e.waitUntil(clients.claim());
+        });
+        
+        // Intercepte toutes les requêtes réseau
+        self.addEventListener('fetch', e => {
+          if (e.request.method !== 'GET') return;
+          
+          e.respondWith(
+            caches.match(e.request).then(cachedResponse => {
+              // Stratégie "Stale-While-Revalidate" : sert le cache si dispo, sinon va sur le web
+              const fetchPromise = fetch(e.request).then(networkResponse => {
+                // Met en cache la nouvelle version pour la prochaine fois
+                caches.open(CACHE_NAME).then(cache => {
+                  cache.put(e.request, networkResponse.clone());
+                });
+                return networkResponse;
+              }).catch(() => {
+                // Ignore les erreurs réseau silencieusement en mode offline
+              });
+              
+              // Retourne le cache d'abord, sinon attend le réseau
+              return cachedResponse || fetchPromise;
+            })
+          );
+        });
+      `;
+      const blob = new Blob([swCode], { type: 'application/javascript' });
+      navigator.serviceWorker.register(URL.createObjectURL(blob))
+        .then(() => console.log('Mode Blindé Activé.'))
+        .catch(err => console.error('Erreur SW:', err));
+    }
+  </script>
 </head>
 <body class="bg-zinc-950 text-zinc-100 font-sans antialiased">
   
-  <!-- C'est ici que React va injecter l'application -->
   <div id="root"></div>
 
-  <!-- Ton code React, exécuté en tant que module et traduit par Babel -->
   <script type="text/babel" data-type="module">
     import React, { useState, useEffect } from 'react';
     import { createRoot } from 'react-dom/client';
     import { 
-      Camera, 
-      CheckCircle2, 
-      Clock, 
-      AlertTriangle, 
-      Smartphone, 
-      Zap, 
-      Layout, 
-      User, 
-      MapPin,
-      Plus, 
-      Trash2, 
-      Edit3, 
-      X,
-      Play,
-      Square,
-      Calendar,
-      Image as ImageIcon,
-      ExternalLink
+      Camera, CheckCircle2, Clock, AlertTriangle, Smartphone, Zap, 
+      Layout, User, MapPin, Plus, Trash2, Edit3, X, Play, Square, 
+      Calendar, Image as ImageIcon, ExternalLink, WifiOff
     } from 'lucide-react';
 
     const App = () => {
@@ -67,6 +97,9 @@
       const [currentShot, setCurrentShot] = useState(null);
       const [timer, setTimer] = useState(0);
       const [isTimerRunning, setIsTimerRunning] = useState(false);
+      
+      // Détecteur Hors-Ligne
+      const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
       const [days, setDays] = useState(() => {
         const saved = localStorage.getItem('dir_days');
@@ -97,6 +130,18 @@
         localStorage.setItem('dir_shots', JSON.stringify(shots));
         localStorage.setItem('dir_tricks', JSON.stringify(tricks));
       }, [days, shots, tricks]);
+
+      // --- NETWORK LISTENER ---
+      useEffect(() => {
+        const handleOffline = () => setIsOffline(true);
+        const handleOnline = () => setIsOffline(false);
+        window.addEventListener('offline', handleOffline);
+        window.addEventListener('online', handleOnline);
+        return () => { 
+          window.removeEventListener('offline', handleOffline); 
+          window.removeEventListener('online', handleOnline); 
+        };
+      }, []);
 
       // --- TIMER LOGIC ---
       useEffect(() => {
@@ -169,251 +214,265 @@
       const progress = currentShots.length > 0 ? Math.round((currentShots.filter(s => s.done).length / currentShots.length) * 100) : 0;
 
       return (
-        <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans p-4 pb-32">
+        <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans pb-32">
           
-          {/* HEADER & CHRONO */}
-          <div className="flex justify-between items-center mb-6 bg-zinc-900 p-4 rounded-3xl border border-zinc-800 shadow-2xl">
-            <div>
-              <h1 className="text-xl font-black text-white flex items-center gap-2">
-                <Smartphone className="text-orange-500" size={20} />
-                DIRECTOR HUB
-              </h1>
-              <p className="text-zinc-500 text-[10px] uppercase tracking-widest">14 Secondes | Commando Tool</p>
+          {/* OFFLINE BANNER */}
+          {isOffline && (
+            <div className="bg-red-600 text-white text-[10px] font-black uppercase tracking-[0.2em] py-1.5 flex items-center justify-center gap-2">
+              <WifiOff size={12} /> MODE HORS LIGNE ACTIF
             </div>
-            <div className="flex items-center gap-3 bg-black/50 px-3 py-2 rounded-2xl border border-white/5">
-              <span className={`font-mono text-xl ${isTimerRunning ? 'text-orange-500' : 'text-zinc-500'}`}>
-                {formatTime(timer)}
-              </span>
-              <button 
-                onClick={() => setIsTimerRunning(!isTimerRunning)}
-                className={`p-2 rounded-full transition-all ${isTimerRunning ? 'bg-zinc-800' : 'bg-orange-600 shadow-lg shadow-orange-900/40'}`}
-              >
-                {isTimerRunning ? <Square size={14} fill="white" /> : <Play size={14} fill="white" />}
-              </button>
-            </div>
-          </div>
+          )}
 
-          {/* TABS NAVIGATION */}
-          <div className="flex gap-2 mb-6">
-            {['shots', 'tricks', 'planning'].map(tab => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`flex-1 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${
-                  activeTab === tab 
-                  ? 'bg-orange-600 border-orange-500 text-white shadow-lg shadow-orange-900/20' 
-                  : 'bg-zinc-900 border-zinc-800 text-zinc-500'
-                }`}
-              >
-                {tab === 'shots' && <Camera size={14} className="inline mr-2 mb-0.5" />}
-                {tab}
-              </button>
-            ))}
-          </div>
-
-          {/* SHOTS CONTENT */}
-          {activeTab === 'shots' && (
-            <div className="space-y-4">
-              {/* Day Selector */}
-              <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-                {days.map(day => (
-                  <button
-                    key={day.id}
-                    onClick={() => setActiveDayId(day.id)}
-                    className={`flex-shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition-all border ${
-                      activeDayId === day.id 
-                      ? 'bg-white text-black border-white' 
-                      : 'bg-zinc-900 text-zinc-500 border-zinc-800'
-                    }`}
-                  >
-                    {day.label}
-                  </button>
-                ))}
-                <button onClick={addDay} className="flex-shrink-0 px-4 py-2 rounded-xl bg-zinc-800 border border-zinc-700 text-zinc-400">
-                  <Plus size={16} />
+          <div className="p-4">
+            {/* HEADER & CHRONO */}
+            <div className="flex justify-between items-center mb-6 bg-zinc-900 p-4 rounded-3xl border border-zinc-800 shadow-2xl">
+              <div>
+                <h1 className="text-xl font-black text-white flex items-center gap-2">
+                  <Smartphone className="text-orange-500" size={20} />
+                  DIRECTOR HUB
+                </h1>
+                <p className="text-zinc-500 text-[10px] uppercase tracking-widest">14 Secondes | Commando Tool</p>
+              </div>
+              <div className="flex items-center gap-3 bg-black/50 px-3 py-2 rounded-2xl border border-white/5">
+                <span className={`font-mono text-xl ${isTimerRunning ? 'text-orange-500' : 'text-zinc-500'}`}>
+                  {formatTime(timer)}
+                </span>
+                <button 
+                  onClick={() => setIsTimerRunning(!isTimerRunning)}
+                  className={`p-2 rounded-full transition-all ${isTimerRunning ? 'bg-zinc-800' : 'bg-orange-600 shadow-lg shadow-orange-900/40'}`}
+                >
+                  {isTimerRunning ? <Square size={14} fill="white" /> : <Play size={14} fill="white" />}
                 </button>
               </div>
+            </div>
 
-              {/* Day Info Card */}
-              {currentDay && (
-                <div className="bg-orange-600/10 border border-orange-600/20 p-5 rounded-3xl relative overflow-hidden">
-                  <div className="flex justify-between items-start">
-                    <div className="flex gap-3">
-                      <MapPin className="text-orange-500 mt-1" size={18} />
-                      <div>
-                        <h2 className="font-black text-orange-500 text-lg uppercase">{currentDay.lieu}</h2>
-                        <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-tighter">{currentDay.date}</p>
-                        <p className="text-xs text-zinc-300 mt-2 flex items-center gap-1 opacity-80 italic">
-                          <User size={12} /> {currentDay.actors}
-                        </p>
+            {/* TABS NAVIGATION */}
+            <div className="flex gap-2 mb-6">
+              {['shots', 'tricks', 'planning'].map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`flex-1 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${
+                    activeTab === tab 
+                    ? 'bg-orange-600 border-orange-500 text-white shadow-lg shadow-orange-900/20' 
+                    : 'bg-zinc-900 border-zinc-800 text-zinc-500'
+                  }`}
+                >
+                  {tab === 'shots' && <Camera size={14} className="inline mr-2 mb-0.5" />}
+                  {tab}
+                </button>
+              ))}
+            </div>
+
+            {/* SHOTS CONTENT */}
+            {activeTab === 'shots' && (
+              <div className="space-y-4">
+                {/* Day Selector */}
+                <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+                  {days.map(day => (
+                    <button
+                      key={day.id}
+                      onClick={() => setActiveDayId(day.id)}
+                      className={`flex-shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition-all border ${
+                        activeDayId === day.id 
+                        ? 'bg-white text-black border-white' 
+                        : 'bg-zinc-900 text-zinc-500 border-zinc-800'
+                      }`}
+                    >
+                      {day.label}
+                    </button>
+                  ))}
+                  <button onClick={addDay} className="flex-shrink-0 px-4 py-2 rounded-xl bg-zinc-800 border border-zinc-700 text-zinc-400">
+                    <Plus size={16} />
+                  </button>
+                </div>
+
+                {/* Day Info Card */}
+                {currentDay && (
+                  <div className="bg-orange-600/10 border border-orange-600/20 p-5 rounded-3xl relative overflow-hidden">
+                    <div className="flex justify-between items-start">
+                      <div className="flex gap-3">
+                        <MapPin className="text-orange-500 mt-1" size={18} />
+                        <div>
+                          <h2 className="font-black text-orange-500 text-lg uppercase">{currentDay.lieu}</h2>
+                          <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-tighter">{currentDay.date}</p>
+                          <p className="text-xs text-zinc-300 mt-2 flex items-center gap-1 opacity-80 italic">
+                            <User size={12} /> {currentDay.actors}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-3xl font-black text-orange-500">{progress}%</div>
+                        <div className="text-[8px] text-zinc-500 uppercase font-bold">Done</div>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className="text-3xl font-black text-orange-500">{progress}%</div>
-                      <div className="text-[8px] text-zinc-500 uppercase font-bold">Done</div>
-                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* Shotlist */}
-              <div className="space-y-3">
+                {/* Shotlist */}
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center px-1">
+                    <h3 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Séquences du jour</h3>
+                    <button onClick={addShot} className="bg-orange-600 text-white p-2 rounded-full shadow-xl">
+                      <Plus size={20} />
+                    </button>
+                  </div>
+                  
+                  {currentShots.map(shot => (
+                    <div 
+                      key={shot.id}
+                      className={`p-4 rounded-2xl border transition-all overflow-hidden ${
+                        shot.done 
+                        ? 'bg-zinc-900/40 border-emerald-900/30 opacity-40 grayscale' 
+                        : 'bg-zinc-900 border-zinc-800'
+                      }`}
+                    >
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="flex items-center gap-3">
+                          <span className="text-[10px] font-black bg-zinc-800 text-orange-500 px-2 py-1 rounded-lg">
+                            PLAN {shot.seq}
+                          </span>
+                          <h4 className="font-bold text-lg">{shot.title}</h4>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => {setCurrentShot(shot); setIsEditingShot(true)}} className="p-2 text-zinc-500 hover:text-white">
+                            <Edit3 size={16} />
+                          </button>
+                          <button 
+                            onClick={() => toggleShot(shot.id)}
+                            className={`w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all ${
+                              shot.done ? 'bg-emerald-500 border-emerald-500' : 'border-zinc-700'
+                            }`}
+                          >
+                            {shot.done && <CheckCircle2 size={16} className="text-white" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* VISUAL REFERENCE (Lien Image) */}
+                      {shot.imgUrl && !shot.done && !isOffline && (
+                        <div className="mb-4 rounded-xl overflow-hidden border border-white/5 bg-black/40 relative group">
+                          <img 
+                            src={shot.imgUrl} 
+                            alt="Ref" 
+                            className="w-full h-32 object-cover opacity-60 group-hover:opacity-100 transition-opacity" 
+                            onError={(e) => e.target.style.display = 'none'}
+                          />
+                          <div className="absolute top-2 right-2 bg-black/60 p-1.5 rounded-lg text-[8px] font-bold uppercase flex items-center gap-1">
+                            <ImageIcon size={10} /> REFERENCE
+                          </div>
+                        </div>
+                      )}
+                      {shot.imgUrl && !shot.done && isOffline && (
+                        <div className="mb-4 text-[10px] text-zinc-600 italic">
+                          (Image de ref non disponible hors-ligne)
+                        </div>
+                      )}
+                      
+                      <div className="flex gap-4 text-[9px] font-bold text-zinc-500 uppercase tracking-widest mb-3">
+                        <span className="flex items-center gap-1 bg-black/40 px-2 py-1 rounded-md border border-white/5">
+                          <Layout size={10} className="text-orange-500" /> {shot.type}
+                        </span>
+                        <span className="flex items-center gap-1 bg-black/40 px-2 py-1 rounded-md border border-white/5">
+                          <Zap size={10} className="text-orange-500" /> {shot.motion}
+                        </span>
+                      </div>
+
+                      {shot.tech && (
+                        <div className="bg-black/40 p-3 rounded-xl border border-white/5 flex items-start gap-2">
+                          <AlertTriangle size={12} className="text-orange-500 mt-0.5 flex-shrink-0" />
+                          <p className="text-xs text-orange-100/70 italic leading-snug">{shot.tech}</p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* TRICKS CONTENT */}
+            {activeTab === 'tricks' && (
+              <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
                 <div className="flex justify-between items-center px-1">
-                  <h3 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Séquences du jour</h3>
-                  <button onClick={addShot} className="bg-orange-600 text-white p-2 rounded-full shadow-xl">
+                  <h3 className="text-xs font-black text-zinc-500 uppercase tracking-widest">Techniques de bord</h3>
+                  <button onClick={addTrick} className="bg-zinc-800 text-white p-2 rounded-full border border-zinc-700 shadow-xl">
                     <Plus size={20} />
                   </button>
                 </div>
-                
-                {currentShots.map(shot => (
-                  <div 
-                    key={shot.id}
-                    className={`p-4 rounded-2xl border transition-all overflow-hidden ${
-                      shot.done 
-                      ? 'bg-zinc-900/40 border-emerald-900/30 opacity-40 grayscale' 
-                      : 'bg-zinc-900 border-zinc-800'
-                    }`}
-                  >
-                    <div className="flex justify-between items-start mb-3">
-                      <div className="flex items-center gap-3">
-                        <span className="text-[10px] font-black bg-zinc-800 text-orange-500 px-2 py-1 rounded-lg">
-                          PLAN {shot.seq}
-                        </span>
-                        <h4 className="font-bold text-lg">{shot.title}</h4>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => {setCurrentShot(shot); setIsEditingShot(true)}} className="p-2 text-zinc-500 hover:text-white">
-                          <Edit3 size={16} />
-                        </button>
-                        <button 
-                          onClick={() => toggleShot(shot.id)}
-                          className={`w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all ${
-                            shot.done ? 'bg-emerald-500 border-emerald-500' : 'border-zinc-700'
-                          }`}
-                        >
-                          {shot.done && <CheckCircle2 size={16} className="text-white" />}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* VISUAL REFERENCE (Lien Image) */}
-                    {shot.imgUrl && !shot.done && (
-                      <div className="mb-4 rounded-xl overflow-hidden border border-white/5 bg-black/40 relative group">
-                        <img 
-                          src={shot.imgUrl} 
-                          alt="Ref" 
-                          className="w-full h-32 object-cover opacity-60 group-hover:opacity-100 transition-opacity" 
-                          onError={(e) => e.target.style.display = 'none'}
-                        />
-                        <div className="absolute top-2 right-2 bg-black/60 p-1.5 rounded-lg text-[8px] font-bold uppercase flex items-center gap-1">
-                          <ImageIcon size={10} /> REFERENCE
+                <div className="grid grid-cols-1 gap-3">
+                  {tricks.map(trick => (
+                    <div key={trick.id} className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl flex justify-between items-center">
+                      <div className="flex gap-4">
+                        <div className="bg-orange-600/20 p-3 rounded-2xl">
+                          <Zap size={20} className="text-orange-500" />
+                        </div>
+                        <div>
+                          <h4 className="font-black text-white text-sm uppercase">{trick.name}</h4>
+                          <p className="text-xs text-zinc-400 mt-1 italic">{trick.desc}</p>
                         </div>
                       </div>
-                    )}
-                    
-                    <div className="flex gap-4 text-[9px] font-bold text-zinc-500 uppercase tracking-widest mb-3">
-                      <span className="flex items-center gap-1 bg-black/40 px-2 py-1 rounded-md border border-white/5">
-                        <Layout size={10} className="text-orange-500" /> {shot.type}
-                      </span>
-                      <span className="flex items-center gap-1 bg-black/40 px-2 py-1 rounded-md border border-white/5">
-                        <Zap size={10} className="text-orange-500" /> {shot.motion}
-                      </span>
-                    </div>
-
-                    {shot.tech && (
-                      <div className="bg-black/40 p-3 rounded-xl border border-white/5 flex items-start gap-2">
-                        <AlertTriangle size={12} className="text-orange-500 mt-0.5 flex-shrink-0" />
-                        <p className="text-xs text-orange-100/70 italic leading-snug">{shot.tech}</p>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* TRICKS CONTENT */}
-          {activeTab === 'tricks' && (
-            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
-              <div className="flex justify-between items-center px-1">
-                <h3 className="text-xs font-black text-zinc-500 uppercase tracking-widest">Techniques de bord</h3>
-                <button onClick={addTrick} className="bg-zinc-800 text-white p-2 rounded-full border border-zinc-700 shadow-xl">
-                  <Plus size={20} />
-                </button>
-              </div>
-              <div className="grid grid-cols-1 gap-3">
-                {tricks.map(trick => (
-                  <div key={trick.id} className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl flex justify-between items-center">
-                    <div className="flex gap-4">
-                      <div className="bg-orange-600/20 p-3 rounded-2xl">
-                        <Zap size={20} className="text-orange-500" />
-                      </div>
-                      <div>
-                        <h4 className="font-black text-white text-sm uppercase">{trick.name}</h4>
-                        <p className="text-xs text-zinc-400 mt-1 italic">{trick.desc}</p>
-                      </div>
-                    </div>
-                    <button onClick={() => setTricks(tricks.filter(t => t.id !== trick.id))} className="text-zinc-700 hover:text-red-500 p-2">
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* PLANNING / DAYS MANAGEMENT */}
-          {activeTab === 'planning' && (
-            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
-              <div className="flex justify-between items-center px-1">
-                <h3 className="text-xs font-black text-zinc-500 uppercase tracking-widest">Gestion du Calendrier</h3>
-                <button onClick={addDay} className="bg-zinc-800 text-white p-2 rounded-full border border-zinc-700">
-                  <Plus size={20} />
-                </button>
-              </div>
-              <div className="space-y-3">
-                {days.map(d => (
-                  <div key={d.id} className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl">
-                    <div className="flex justify-between items-start mb-4">
-                      <div className="w-full">
-                        <input 
-                          className="bg-transparent font-black text-orange-500 uppercase text-lg outline-none w-full"
-                          value={d.label}
-                          onChange={(e) => setDays(days.map(day => day.id === d.id ? {...day, label: e.target.value} : day))}
-                        />
-                        <input 
-                          className="bg-transparent text-[10px] text-zinc-500 font-bold uppercase outline-none w-full"
-                          value={d.date}
-                          onChange={(e) => setDays(days.map(day => day.id === d.id ? {...day, date: e.target.value} : day))}
-                        />
-                      </div>
-                      <button onClick={() => deleteDay(d.id)} className="text-zinc-800 hover:text-red-500 p-1 flex-shrink-0">
-                        <Trash2 size={16} />
+                      <button onClick={() => setTricks(tricks.filter(t => t.id !== trick.id))} className="text-zinc-700 hover:text-red-500 p-2">
+                        <Trash2 size={18} />
                       </button>
                     </div>
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2 bg-black/30 p-2 rounded-xl border border-white/5">
-                        <MapPin size={12} className="text-zinc-500 flex-shrink-0" />
-                        <input 
-                          className="bg-transparent text-xs text-zinc-300 outline-none w-full"
-                          value={d.lieu}
-                          onChange={(e) => setDays(days.map(day => day.id === d.id ? {...day, lieu: e.target.value} : day))}
-                        />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* PLANNING / DAYS MANAGEMENT */}
+            {activeTab === 'planning' && (
+              <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
+                <div className="flex justify-between items-center px-1">
+                  <h3 className="text-xs font-black text-zinc-500 uppercase tracking-widest">Gestion du Calendrier</h3>
+                  <button onClick={addDay} className="bg-zinc-800 text-white p-2 rounded-full border border-zinc-700">
+                    <Plus size={20} />
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  {days.map(d => (
+                    <div key={d.id} className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl">
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="w-full">
+                          <input 
+                            className="bg-transparent font-black text-orange-500 uppercase text-lg outline-none w-full"
+                            value={d.label}
+                            onChange={(e) => setDays(days.map(day => day.id === d.id ? {...day, label: e.target.value} : day))}
+                          />
+                          <input 
+                            className="bg-transparent text-[10px] text-zinc-500 font-bold uppercase outline-none w-full"
+                            value={d.date}
+                            onChange={(e) => setDays(days.map(day => day.id === d.id ? {...day, date: e.target.value} : day))}
+                          />
+                        </div>
+                        <button onClick={() => deleteDay(d.id)} className="text-zinc-800 hover:text-red-500 p-1 flex-shrink-0">
+                          <Trash2 size={16} />
+                        </button>
                       </div>
-                      <div className="flex items-center gap-2 bg-black/30 p-2 rounded-xl border border-white/5">
-                        <User size={12} className="text-zinc-500 flex-shrink-0" />
-                        <input 
-                          className="bg-transparent text-xs text-zinc-300 outline-none w-full"
-                          value={d.actors}
-                          onChange={(e) => setDays(days.map(day => day.id === d.id ? {...day, actors: e.target.value} : day))}
-                        />
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 bg-black/30 p-2 rounded-xl border border-white/5">
+                          <MapPin size={12} className="text-zinc-500 flex-shrink-0" />
+                          <input 
+                            className="bg-transparent text-xs text-zinc-300 outline-none w-full"
+                            value={d.lieu}
+                            onChange={(e) => setDays(days.map(day => day.id === d.id ? {...day, lieu: e.target.value} : day))}
+                          />
+                        </div>
+                        <div className="flex items-center gap-2 bg-black/30 p-2 rounded-xl border border-white/5">
+                          <User size={12} className="text-zinc-500 flex-shrink-0" />
+                          <input 
+                            className="bg-transparent text-xs text-zinc-300 outline-none w-full"
+                            value={d.actors}
+                            onChange={(e) => setDays(days.map(day => day.id === d.id ? {...day, actors: e.target.value} : day))}
+                          />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* SHOT EDIT MODAL */}
           {isEditingShot && currentShot && (
@@ -476,9 +535,9 @@
                       />
                     </div>
                     <div className="flex flex-col justify-end">
-                       {currentShot.imgUrl && (
+                       {currentShot.imgUrl && !isOffline && (
                          <div className="w-full h-10 rounded-xl overflow-hidden border border-white/10">
-                           <img src={currentShot.imgUrl} className="w-full h-full object-cover" />
+                           <img src={currentShot.imgUrl} className="w-full h-full object-cover" onError={(e) => e.target.style.display='none'} />
                          </div>
                        )}
                     </div>
@@ -541,7 +600,6 @@
       );
     };
 
-    // Instruction d'amorçage React 18
     const root = createRoot(document.getElementById('root'));
     root.render(<App />);
   </script>
