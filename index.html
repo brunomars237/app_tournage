@@ -8,6 +8,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Director Hub - 14 Secondes</title>
   
+  <!-- Styles CSS Local (Offline-ready) -->
+  <link rel="stylesheet" href="/styles.css">
+  
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   
@@ -21,16 +24,10 @@
   <!-- Babel pour compiler le JSX -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <!-- Import Maps -->
-  <script type="importmap">
-    {
-      "imports": {
-        "react": "https://esm.sh/react@18",
-        "react-dom/client": "https://esm.sh/react-dom@18/client",
-        "lucide-react": "https://esm.sh/lucide-react@0.344.0"
-      }
-    }
-  </script>
+  <!-- React & ReactDOM (UMD CDN) -->
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/react.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/react-dom.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/client.min.js"></script>
 
   <!-- LE CERVEAU HORS-LIGNE (Service Worker) -->
   <script>
@@ -69,14 +66,30 @@
   
   <div id="root"></div>
 
-  <script type="text/babel" data-type="module">
-    import React, { useState, useEffect } from 'react';
-    import { createRoot } from 'react-dom/client';
-    import { 
-      Camera, CheckCircle2, Clock, AlertTriangle, Smartphone, Zap, 
-      Layout, User, MapPin, Plus, Trash2, Edit3, X, Play, Square, 
-      Calendar, Image as ImageIcon, ExternalLink, WifiOff
-    } from 'lucide-react';
+  <script type="text/babel">
+    const React = window.React;
+    const { createRoot } = window.ReactDOM;
+    const { useState, useEffect } = React;
+
+    // Lucide icons fallback
+    const Icon = (props) => <div className="inline-block w-4 h-4" />;
+    const Camera = Icon;
+    const CheckCircle2 = Icon;
+    const AlertTriangle = Icon;
+    const Smartphone = Icon;
+    const Zap = Icon;
+    const Layout = Icon;
+    const User = Icon;
+    const MapPin = Icon;
+    const Plus = Icon;
+    const Trash2 = Icon;
+    const Edit3 = Icon;
+    const X = Icon;
+    const Play = Icon;
+    const Square = Icon;
+    const Calendar = Icon;
+    const ImageIcon = Icon;
+    const WifiOff = Icon;
 
     const App = () => {
       // --- PERSISTENCE & INITIAL STATE ---
@@ -589,8 +602,13 @@
       );
     };
 
-    const root = createRoot(document.getElementById('root'));
-    root.render(<App />);
+    if (!React || !createRoot) {
+      document.getElementById('root').innerHTML = '<div style="color:#ef4444;padding:20px">Erreur: React non disponible</div>';
+    } else {
+      const root = createRoot(document.getElementById('root'));
+      root.render(<App />);
+      console.log('✅ App rendue correctement');
+    }
   </script>
 </body>
 </html>
