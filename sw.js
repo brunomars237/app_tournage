@@ -1,13 +1,13 @@
-const CACHE_NAME = 'dirhub-commando-v2'; 
-const RUNTIME_CACHE = 'dirhub-runtime';
+const CACHE_NAME = 'dirhub-commando-v3'; 
+const RUNTIME_CACHE = 'dirhub-runtime-v3';
 
-// Ressources critiques (celles-ci sont au même scope que le SW)
+// Ressources critiques
 const CRITICAL_ASSETS = [ 
   '/', 
   '/index.html'
 ]; 
 
-// Ressources externes - cachées en background
+// Ressources externes
 const EXTERNAL_ASSETS = [
   'https://cdn.tailwindcss.com',
   'https://unpkg.com/@babel/standalone/babel.min.js',
@@ -16,31 +16,37 @@ const EXTERNAL_ASSETS = [
   'https://esm.sh/lucide-react@0.344.0'
 ];
 
-// Installation : Cache les ressources critiques IMMÉDIATEMENT
+// Installation : Cache TOUT agressivement
 self.addEventListener('install', e => { 
   console.log('[SW] Installation en cours...');
   e.waitUntil( 
-    caches.open(CACHE_NAME)
-      .then(cache => {
-        console.log('[SW] Caching ressources critiques');
-        return cache.addAll(CRITICAL_ASSETS);
-      })
-      .then(() => {
-        // Cache les ressources externes en background (ne pas bloquer l'install)
-        caches.open(RUNTIME_CACHE).then(cache => {
-          EXTERNAL_ASSETS.forEach(url => {
-            fetch(url)
-              .then(response => {
-                if (response.ok) {
-                  cache.put(url, response.clone());
-                  console.log('[SW] Cached:', url);
-                }
-              })
-              .catch(err => console.log('[SW] Échec cache:', url, err));
+    Promise.all([
+      // Cache critique
+      caches.open(CACHE_NAME)
+        .then(cache => {
+          console.log('[SW] Caching ressources critiques');
+          return cache.addAll(CRITICAL_ASSETS).catch(err => {
+            console.log('[SW] Partial cache OK:', err.message);
           });
-        });
-        return true;
-      })
+        }),
+      // Cache des ressources externes
+      caches.open(RUNTIME_CACHE)
+        .then(cache => {
+          console.log('[SW] Pré-caching ressources externes...');
+          return Promise.all(
+            EXTERNAL_ASSETS.map(url => 
+              fetch(url)
+                .then(response => {
+                  if (response.ok || response.status === 0) {
+                    return cache.put(url, response);
+                  }
+                  throw new Error(`HTTP ${response.status}`);
+                })
+                .catch(err => console.log('[SW] Échec:', url, err.message))
+            )
+          );
+        })
+    ])
   ); 
   self.skipWaiting(); 
 }); 
@@ -54,64 +60,86 @@ self.addEventListener('activate', e => {
       caches.keys().then(cacheNames => {
         return Promise.all(
           cacheNames
-            .filter(name => name !== CACHE_NAME && name !== RUNTIME_CACHE)
-            .map(name => caches.delete(name))
+            .filter(name => !name.includes('dirhub-commando-v3') && !name.includes('dirhub-runtime-v3'))
+            .map(name => {
+              console.log('[SW] Suppression cache ancien:', name);
+              return caches.delete(name);
+            })
         );
       })
     ])
   ); 
 }); 
 
-// Stratégie : Réseau d'abord, puis Cache, puis Fallback
+// Stratégie adaptée par type de ressource
 self.addEventListener('fetch', e => { 
   if (e.request.method !== 'GET') return;
   
-  const url = new URL(e.request.url);
+  const url = e.request.url;
+  const isExternal = url.includes('esm.sh') || url.includes('tailwind') || url.includes('babel') || url.includes('unpkg') || url.includes('unsplash');
   
-  e.respondWith(
-    // Essayer le réseau EN PREMIER
-    fetch(e.request, { mode: 'no-cors' })
-      .then(networkResponse => {
-        // Accepter les réponses valides (même status 0 en mode no-cors)
-        if (networkResponse && networkResponse.status !== 404) {
-          // Mettre à jour le cache avec la nouvelle version
-          const cache = networkResponse.url.includes('esm.sh') || networkResponse.url.includes('tailwind') || networkResponse.url.includes('babel') || networkResponse.url.includes('unpkg')
-            ? RUNTIME_CACHE
-            : CACHE_NAME;
+  if (isExternal) {
+    // Pour les CDNs externes : CACHE-FIRST (critère au cache)
+    e.respondWith(
+      caches.match(url)
+        .then(cachedResponse => {
+          if (cachedResponse) {
+            console.log('[SW] Cache hit:', url);
+            // Mettre à jour en background
+            fetch(url)
+              .then(response => {
+                if (response.ok) {
+                  caches.open(RUNTIME_CACHE).then(cache => {
+                    cache.put(url, response);
+                    console.log('[SW] Updated:', url);
+                  });
+                }
+              })
+              .catch(() => {});
+            return cachedResponse;
+          }
           
-          caches.open(cache).then(c => {
-            c.put(e.request, networkResponse.clone());
+          // Pas en cache, fetch du réseau
+          console.log('[SW] Network fetch:', url);
+          return fetch(url)
+            .then(response => {
+              if (response.ok || response.status === 0) {
+                // Mettre en cache
+                const responseClone = response.clone();
+                caches.open(RUNTIME_CACHE).then(cache => {
+                  cache.put(url, responseClone);
+                });
+                return response;
+              }
+              throw new Error(`HTTP ${response.status}`);
+            })
+            .catch(err => {
+              console.log('[SW] Network error, returning cache fallback:', err.message);
+              return caches.match(url);
+            });
+        })
+        .catch(() => new Response('Offline', { status: 503 }))
+    );
+  } else {
+    // Pour nos ressources locales : NETWORK-FIRST
+    e.respondWith(
+      fetch(url)
+        .then(networkResponse => {
+          // Mettre à jour le cache
+          caches.open(CACHE_NAME).then(cache => {
+            cache.put(url, networkResponse.clone());
           });
           return networkResponse;
-        }
-        throw new Error('Response not OK');
-      })
-      .catch(() => {
-        // Fallback au cache
-        return caches.match(e.request, { ignoreSearch: true })
-          .then(cachedResponse => {
-            if (cachedResponse) {
-              console.log('[SW] Serving from cache:', e.request.url);
-              return cachedResponse;
-            }
-            
-            // Dernière tentative : chercher dans l'autre cache
-            return caches.keys().then(names => {
-              for (let name of names) {
-                // Chercher dans tous les caches
-                return caches
-                  .open(name)
-                  .then(cache => cache.match(e.request, { ignoreSearch: true }))
-                  .then(res => res || Promise.reject());
-              }
-            }).catch(() => {
-              console.log('[SW] Resource not available:', e.request.url);
-              return new Response('Offline - Ressource non disponible', { 
-                status: 503, 
-                statusText: 'Service Unavailable' 
-              });
+        })
+        .catch(() => {
+          console.log('[SW] Network failed, using cache:', url);
+          return caches.match(url)
+            .then(cachedResponse => {
+              if (cachedResponse) return cachedResponse;
+              // Pas trouvé dans aucun cache
+              return new Response('Offline', { status: 503 });
             });
-          });
-      })
-  ); 
+        })
+    );
+  }
 });
