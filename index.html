@@ -8,9 +8,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Director Hub - 14 Secondes</title>
   
-  <!-- Styles CSS Local (Offline-ready) -->
-  <link rel="stylesheet" href="/styles.css">
-  
+  <!-- Manifeste PWA injecté pour Android (Permet "Ajouter à l'écran d'accueil") -->
+  <link rel="manifest" href="data:application/json;charset=utf-8,%7B%22name%22%3A%22Director%20Hub%20-%2014%20Secondes%22%2C%22short_name%22%3A%22DirHub%22%2C%22start_url%22%3A%22.%2F%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%2309090b%22%2C%22theme_color%22%3A%22%2309090b%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0yMyAxOWEyIDIgMCAwIDEtMiAySDNhMiAyIDAgMCAxLTItMlY4YTIgMiAwIDAgMSAyLTJoNGwyLTNoNmwyIDNoNGEyIDIgMCAwIDEgMiAyeiIvPjxjaXJjbGUgY3g9IjEyIiBjeT0iMTMiIHI9IjQiLz48L3N2Zz4iLCJzaXplcyI6IjUxMng1MTIiLCJ0eXBlIjoiaW1hZ2Uvc3ZnK3htbCJ9%5D%7D">
+
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   
@@ -24,41 +24,76 @@
   <!-- Babel pour compiler le JSX -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <!-- React & ReactDOM (UMD CDN) -->
-  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/react.production.min.js"></script>
-  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/react-dom.production.min.js"></script>
-  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/client.min.js"></script>
+  <!-- Import Maps -->
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18",
+        "react-dom/client": "https://esm.sh/react-dom@18/client",
+        "lucide-react": "https://esm.sh/lucide-react@0.344.0"
+      }
+    }
+  </script>
 
-  <!-- LE CERVEAU HORS-LIGNE (Service Worker) -->
+  <!-- LE CERVEAU HORS-LIGNE (Service Worker Agressif - Mise à jour) -->
   <script>
     if ('serviceWorker' in navigator) {
-      // Attendre que la page soit prête
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js', { scope: '/' })
-          .then(reg => {
-            console.log('✅ Mode Blindé Activé - SW enregistré:', reg);
-            console.log('State:', reg.installing, reg.waiting, reg.active);
-            
-            // Vérifier les mises à jour toutes les 30 min
-            setInterval(() => {
-              reg.update().catch(err => console.error('Erreur update:', err));
-            }, 1800000);
-            
-            // Écouter les messages du SW
-            navigator.serviceWorker.addEventListener('controllerchange', () => {
-              console.log('✅ Nouveau SW contrôle la page');
-            });
-          })
-          .catch(err => {
-            console.error('❌ Erreur SW registration:', err);
-            console.error('Stack:', err.stack);
-          });
-      });
+      const swCode = `
+        const CACHE_NAME = 'dirhub-commando-v2';
+        
+        self.addEventListener('install', e => {
+          // On force l'activation immédiate sans attendre
+          self.skipWaiting();
+          
+          // NOTE FRANCHISE : Pas de cache.addAll ici avec les CDN (esm.sh). 
+          // Les redirections HTTP feraient crasher l'installation.
+          // Tout se mettra en cache dynamiquement via le 'fetch' ci-dessous.
+        });
+        
+        self.addEventListener('activate', e => {
+          // Nettoyage des vieux caches si on change de version
+          e.waitUntil(
+            caches.keys().then(keys => Promise.all(
+              keys.map(key => {
+                if (key !== CACHE_NAME) return caches.delete(key);
+              })
+            ))
+          );
+          e.waitUntil(clients.claim());
+        });
+        
+        // Stratégie : Réseau d'abord, sinon Cache (Exactement ce que tu as demandé)
+        self.addEventListener('fetch', e => {
+          // On ne gère que les requêtes GET (pas les POST, PUT, etc.)
+          if (e.request.method !== 'GET') return;
+          // On ignore les requêtes internes des extensions du navigateur
+          if (e.request.url.startsWith('chrome-extension')) return;
+          
+          e.respondWith(
+            fetch(e.request)
+              .then(networkResponse => {
+                // Si la requête réussit et qu'elle est valide, on met à jour le cache
+                // On accepte les status 200, ou "opaque" (0) pour les CDN restrictifs
+                if (networkResponse && (networkResponse.status === 200 || networkResponse.type === 'opaque')) {
+                  const responseClone = networkResponse.clone();
+                  caches.open(CACHE_NAME).then(cache => {
+                    cache.put(e.request, responseClone);
+                  });
+                }
+                return networkResponse;
+              })
+              .catch(() => {
+                // En cas d'échec (pas de réseau / hors-ligne complet), on sert le cache
+                return caches.match(e.request);
+              })
+          );
+        });
+      `;
       
-      // Vérifier l'état de la connexion
-      console.log('Online:', navigator.onLine);
-    } else {
-      console.warn('Service Workers non supportés');
+      const blob = new Blob([swCode], { type: 'application/javascript' });
+      navigator.serviceWorker.register(URL.createObjectURL(blob))
+        .then(() => console.log('Mode Hors-Ligne (Network-First) Activé avec succès.'))
+        .catch(err => console.error('Erreur SW:', err));
     }
   </script>
 </head>
@@ -66,30 +101,14 @@
   
   <div id="root"></div>
 
-  <script type="text/babel">
-    const React = window.React;
-    const { createRoot } = window.ReactDOM;
-    const { useState, useEffect } = React;
-
-    // Lucide icons fallback
-    const Icon = (props) => <div className="inline-block w-4 h-4" />;
-    const Camera = Icon;
-    const CheckCircle2 = Icon;
-    const AlertTriangle = Icon;
-    const Smartphone = Icon;
-    const Zap = Icon;
-    const Layout = Icon;
-    const User = Icon;
-    const MapPin = Icon;
-    const Plus = Icon;
-    const Trash2 = Icon;
-    const Edit3 = Icon;
-    const X = Icon;
-    const Play = Icon;
-    const Square = Icon;
-    const Calendar = Icon;
-    const ImageIcon = Icon;
-    const WifiOff = Icon;
+  <script type="text/babel" data-type="module">
+    import React, { useState, useEffect } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import { 
+      Camera, CheckCircle2, Clock, AlertTriangle, Smartphone, Zap, 
+      Layout, User, MapPin, Plus, Trash2, Edit3, X, Play, Square, 
+      Calendar, Image as ImageIcon, ExternalLink, WifiOff
+    } from 'lucide-react';
 
     const App = () => {
       // --- PERSISTENCE & INITIAL STATE ---
@@ -602,13 +621,8 @@
       );
     };
 
-    if (!React || !createRoot) {
-      document.getElementById('root').innerHTML = '<div style="color:#ef4444;padding:20px">Erreur: React non disponible</div>';
-    } else {
-      const root = createRoot(document.getElementById('root'));
-      root.render(<App />);
-      console.log('✅ App rendue correctement');
-    }
+    const root = createRoot(document.getElementById('root'));
+    root.render(<App />);
   </script>
 </body>
 </html>
