@@ -32,46 +32,15 @@
     }
   </script>
 
-  <!-- LE CERVEAU HORS-LIGNE (Service Worker Agressif) -->
+  <!-- LE CERVEAU HORS-LIGNE (Service Worker) -->
   <script>
     if ('serviceWorker' in navigator) {
-      const swCode = `
-        const CACHE_NAME = 'dirhub-commando-v1';
-        
-        self.addEventListener('install', e => {
-          self.skipWaiting();
-        });
-        
-        self.addEventListener('activate', e => {
-          e.waitUntil(clients.claim());
-        });
-        
-        // Intercepte toutes les requêtes réseau
-        self.addEventListener('fetch', e => {
-          if (e.request.method !== 'GET') return;
-          
-          e.respondWith(
-            caches.match(e.request).then(cachedResponse => {
-              // Stratégie "Stale-While-Revalidate" : sert le cache si dispo, sinon va sur le web
-              const fetchPromise = fetch(e.request).then(networkResponse => {
-                // Met en cache la nouvelle version pour la prochaine fois
-                caches.open(CACHE_NAME).then(cache => {
-                  cache.put(e.request, networkResponse.clone());
-                });
-                return networkResponse;
-              }).catch(() => {
-                // Ignore les erreurs réseau silencieusement en mode offline
-              });
-              
-              // Retourne le cache d'abord, sinon attend le réseau
-              return cachedResponse || fetchPromise;
-            })
-          );
-        });
-      `;
-      const blob = new Blob([swCode], { type: 'application/javascript' });
-      navigator.serviceWorker.register(URL.createObjectURL(blob))
-        .then(() => console.log('Mode Blindé Activé.'))
+      navigator.serviceWorker.register('/sw.js')
+        .then(reg => {
+          console.log('Mode Blindé Activé - Service Worker enregistré');
+          // Vérifier les mises à jour toutes les heures
+          setInterval(() => reg.update(), 3600000);
+        })
         .catch(err => console.error('Erreur SW:', err));
     }
   </script>
